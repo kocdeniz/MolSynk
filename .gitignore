@@ -1,0 +1,11 @@
+# Local test data / credentials
+aol.txt
+
+# Runtime artifacts
+molsynk.log
+migration_state.json
+
+# Local build outputs
+molsynk
+*.exe
+*.out
