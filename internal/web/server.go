@@ -4,6 +4,7 @@ package web
 
 import (
 	"context"
+	"embed"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -15,6 +16,9 @@ import (
 	"github.com/kocdeniz/mailmole/internal/imap"
 	syncpkg "github.com/kocdeniz/mailmole/internal/sync"
 )
+
+//go:embed locales/*.json
+var localesFS embed.FS
 
 // Server handles HTTP requests and WebSocket connections for the web dashboard
 type Server struct {
@@ -934,56 +938,13 @@ func (s *Server) handleLocales(w http.ResponseWriter, r *http.Request) {
 	// Remove .json extension if present
 	lang := strings.TrimSuffix(path, ".json")
 
-	// Supported languages
-	locales := map[string]string{
-		"en": `{
-  "app": {
-    "name": "MailMole",
-    "tagline": "Professional IMAP Migration Tool"
-  },
-  "nav": {
-    "migration": "Migration",
-    "connectionSetup": "Connection Setup",
-    "preview": "Preview",
-    "progress": "Progress",
-    "history": "History",
-    "activityLogs": "Activity Logs"
-  },
-  "buttons": {
-    "testConnection": "Test Connection",
-    "detailedTest": "Detailed Test",
-    "previewMigration": "Preview Migration",
-    "startMigration": "Start Migration"
-  }
-}`,
-		"tr": `{
-  "app": {
-    "name": "MailMole",
-    "tagline": "Profesyonel IMAP Migration Aracı"
-  },
-  "nav": {
-    "migration": "Migration",
-    "connectionSetup": "Bağlantı Ayarları",
-    "preview": "Önizleme",
-    "progress": "İlerleme",
-    "history": "Geçmiş",
-    "activityLogs": "Aktivite Günlükleri"
-  },
-  "buttons": {
-    "testConnection": "Bağlantıyı Test Et",
-    "detailedTest": "Detaylı Test",
-    "previewMigration": "Migration Önizle",
-    "startMigration": "Migration Başlat"
-  }
-}`,
-	}
-
-	localeData, exists := locales[lang]
-	if !exists {
+	// Read from embedded locale files
+	localeData, err := localesFS.ReadFile("locales/" + lang + ".json")
+	if err != nil {
 		http.Error(w, "Locale not found", http.StatusNotFound)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte(localeData))
+	w.Write(localeData)
 }

@@ -42,6 +42,24 @@ const dashboardHTML = `<!DOCTYPE html>
             gap: 8px;
         }
 
+        .language-selector-top {
+            position: fixed;
+            top: 20px;
+            right: 40px;
+            z-index: 100;
+            background: #1a1a1a;
+            border: 1px solid #333;
+            border-radius: 6px;
+            padding: 8px 12px;
+            font-size: 14px;
+            color: #e5e5e5;
+            cursor: pointer;
+        }
+
+        .language-selector-top:hover {
+            border-color: #3b82f6;
+        }
+
         .nav-section {
             margin-bottom: 24px;
         }
@@ -569,46 +587,45 @@ const dashboardHTML = `<!DOCTYPE html>
             </div>
 
             <div class="nav-section">
-                <div class="nav-title">Migration</div>
-                <div class="nav-item active" onclick="showPage('setup')">Connection Setup</div>
-                <div class="nav-item" onclick="showPage('preview')">Preview</div>
-                <div class="nav-item" onclick="showPage('progress')">Progress</div>
+                <div class="nav-title" data-i18n="nav.migration">Migration</div>
+                <div class="nav-item active" onclick="showPage('setup')" data-i18n="nav.connectionSetup">Connection Setup</div>
+                <div class="nav-item" onclick="showPage('preview')" data-i18n="nav.preview">Preview</div>
+                <div class="nav-item" onclick="showPage('progress')" data-i18n="nav.progress">Progress</div>
             </div>
 
             <div class="nav-section">
-                <div class="nav-title">History</div>
-                <div class="nav-item" onclick="showPage('logs')">Activity Logs</div>
+                <div class="nav-title" data-i18n="nav.history">History</div>
+                <div class="nav-item" onclick="showPage('logs')" data-i18n="nav.activityLogs">Activity Logs</div>
             </div>
 
-            <div class="nav-section" style="margin-top: auto;">
-                <div class="nav-title">Language / Dil</div>
-                <select id="language-selector" onchange="changeLanguage(this.value)" style="width: 100%; background: #1a1a1a; border: 1px solid #333; color: #e5e5e5; padding: 8px; border-radius: 6px; font-size: 14px;">
-                    <option value="en">🇬🇧 English</option>
-                    <option value="tr">🇹🇷 Türkçe</option>
-                </select>
-            </div>
         </aside>
+
+        <!-- Language Selector (Fixed Top Right) -->
+        <select class="language-selector-top" id="language-selector" onchange="changeLanguage(this.value)">
+            <option value="en">🇬🇧 English</option>
+            <option value="tr">🇹🇷 Türkçe</option>
+        </select>
 
         <!-- Main Content -->
         <main class="main">
             <!-- Setup Page -->
             <div id="page-setup">
                 <div class="header">
-                    <h1>Connection Setup</h1>
-                    <p>Configure source and destination IMAP servers</p>
+                    <h1 data-i18n="setup.title">Connection Setup</h1>
+                    <p data-i18n="setup.subtitle">Configure source and destination IMAP servers</p>
                 </div>
 
                 <div class="tabs">
-                    <button class="tab active" onclick="switchMode('single')">Single Account</button>
-                    <button class="tab" onclick="switchMode('bulk')">Bulk Migration</button>
+                    <button class="tab active" onclick="switchMode('single')" data-i18n="setup.singleAccount">Single Account</button>
+                    <button class="tab" onclick="switchMode('bulk')" data-i18n="setup.bulkMigration">Bulk Migration</button>
                 </div>
 
                 <!-- Single Account Form -->
                 <div id="single-form">
                     <!-- Templates Card -->
                     <div class="card">
-                        <div class="card-title">Quick Templates</div>
-                        <p style="color: #737373; font-size: 13px; margin-bottom: 16px;">
+                        <div class="card-title" data-i18n="setup.templates.title">Quick Templates</div>
+                        <p style="color: #737373; font-size: 13px; margin-bottom: 16px;" data-i18n="setup.templates.description">
                             Select a predefined server configuration
                         </p>
                         <div style="display: flex; gap: 12px; flex-wrap: wrap;">
