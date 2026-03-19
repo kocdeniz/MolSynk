@@ -8,7 +8,9 @@ message transfer, and compatibility with older Linux systems.
 
 ## Current capabilities
 
-- Interactive TUI built with Bubble Tea and Lip Gloss
+- **Interactive TUI** built with Bubble Tea and Lip Gloss
+- **Preview Mode** - Review folders and message counts before migration
+- **Web Dashboard** - Monitor migrations from any browser (optional)
 - Intro/branding screen and mode selection
 - Manual mode (single account pair)
 - Bulk mode (multiple account pairs from file)
@@ -98,9 +100,24 @@ Fill these fields:
 - Destination Username
 - Destination Password
 
-Press `Enter` on the last field to connect.
+Press `Enter` on the last field to continue.
 
-If connection succeeds, dashboard opens and you can press `s` to start sync.
+#### Preview Mode
+
+After connecting, you'll see the **Preview Screen** showing:
+- All folders from the source account
+- Message count per folder
+- Estimated total size
+- Estimated migration duration
+
+**Controls:**
+- `↑/↓` - Navigate folders
+- `Space` - Toggle folder selection
+- `a` - Select all folders
+- `n` - Select none
+- `Enter` - Start migration with selected folders
+- `Esc` - Go back
+
 If connection fails, the app returns to the form and shows the exact error.
 
 ### Bulk mode
@@ -148,12 +165,45 @@ MailMole preserves server folder names exactly as returned by IMAP.
 Example: if source uses `INBOX.Sent`, `INBOX.Drafts`, `INBOX.Archive`, those
 exact names are created/copied on destination. This is normal IMAP behavior.
 
+## Web Dashboard (Optional)
+
+MailMole includes an optional web dashboard for monitoring migrations from any browser.
+
+### Usage
+
+Run with web dashboard enabled:
+```bash
+# TUI + Web Dashboard
+./mailmole -web :8080
+
+# Web Dashboard only (no TUI)
+./mailmole -web :8080 -web-only
+```
+
+Then open `http://localhost:8080` in your browser.
+
+### Features
+
+- **Real-time monitoring** via Server-Sent Events (SSE)
+- Live progress bar and statistics
+- Per-folder and per-account status
+- Activity log viewer
+- Responsive design (works on mobile)
+- Dark theme matching the TUI
+
+The web dashboard updates automatically as the migration progresses, making it ideal for:
+- Remote monitoring from another device
+- Sharing progress with team members
+- Running migrations on headless servers
+
 ## Security notes
 
 - Credentials are entered directly in the terminal UI.
 - For TLS connections made with a raw IP address, certificate verification is
   relaxed to avoid hostname mismatch failures.
 - For hostname-based connections, normal TLS hostname verification applies.
+- **Web Dashboard**: No authentication by default - only run on trusted networks
+  or use firewall rules to restrict access.
 
 ## Project structure
 
@@ -166,8 +216,8 @@ internal/imap/           # IMAP client wrapper and transfer operations
 
 ## Known limitations
 
-- No dry-run mode yet
-- No exported summary artifact (e.g. JSON/CSV report file) yet
+- No JSON/CSV export of migration reports yet (web dashboard available)
+- Web dashboard has no built-in authentication
 
 ## Status
 

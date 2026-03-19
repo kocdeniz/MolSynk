@@ -109,6 +109,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateManual(msg)
 	case PhaseBulk:
 		return m.updateBulk(msg)
+	case PhasePreview:
+		return m.updatePreview(msg)
 	default:
 		return m.updateDash(msg)
 	}
@@ -247,11 +249,12 @@ func (m Model) submitManualForm() (tea.Model, tea.Cmd) {
 	// Store full config including password so the sync engine can re-connect.
 	m.SrcConfig = ConnConfig{Host: srcHost, Port: srcPort, Username: srcUser, Password: srcPass, TLS: srcTLS}
 	m.DstConfig = ConnConfig{Host: dstHost, Port: dstPort, Username: dstUser, Password: dstPass, TLS: dstTLS}
-	m.State = StateConnecting
-	m.SrcState = ConnConnecting
-	m.DstState = ConnConnecting
 
-	return m, sync.Connect(
+	// Go to Preview mode instead of directly connecting
+	m.Phase = PhasePreview
+	m.AddLog(LogInfo, "Fetching migration preview...")
+
+	return m, sync.FetchPreview(
 		imapconn.Config{Host: srcHost, Port: srcPort, Username: srcUser, Password: srcPass, TLS: srcTLS},
 		imapconn.Config{Host: dstHost, Port: dstPort, Username: dstUser, Password: dstPass, TLS: dstTLS},
 	)
@@ -632,8 +635,18 @@ func (m Model) applyStatusUpdate(msg sync.StatusUpdateMsg) (tea.Model, tea.Cmd) 
 			}
 		}
 		m.AddLog(LogSuccess, "All migrations complete.")
+		// Send to web dashboard
+		m.SendLogToWeb(LogSuccess, "All migrations complete.")
+		if m.WebServer != nil {
+			m.WebServer.UpdateFromSyncMsg(msg)
+		}
 		// Update progress bar to 100%
 		return m, m.Progress.SetPercent(1.0)
+	}
+
+	// Send status update to web dashboard
+	if m.WebServer != nil {
+		m.WebServer.UpdateFromSyncMsg(msg)
 	}
 
 	// Update progress bar
@@ -703,4 +716,187 @@ func splitHostPort(raw string) (host string, port int, err error) {
 // isIPAddr returns true when host is a bare IPv4 or IPv6 address.
 func isIPAddr(host string) bool {
 	return net.ParseIP(host) != nil
+}
+
+// ============================================================
+// PhasePreview - Migration Preview Screen
+// ============================================================
+
+func (m Model) updatePreview(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "ctrl+c", "q":
+			return m, tea.Quit
+		case "esc":
+			// Go back to previous phase based on mode
+			if m.InputMode == ModeManual {
+				m.Phase = PhaseManual
+			} else {
+				m.Phase = PhaseBulk
+			}
+			return m, nil
+		case "up":
+			if m.Preview.FocusedFolder > 0 {
+				m.Preview.FocusedFolder--
+			}
+			return m, nil
+		case "down":
+			if m.Preview.FocusedFolder < len(m.Preview.Folders)-1 {
+				m.Preview.FocusedFolder++
+			}
+			return m, nil
+		case " ":
+			// Toggle selection
+			if m.Preview.FocusedFolder < len(m.Preview.Folders) {
+				f := &m.Preview.Folders[m.Preview.FocusedFolder]
+				f.Selected = !f.Selected
+				m.recalculatePreviewTotals()
+			}
+			return m, nil
+		case "a":
+			// Select all
+			for i := range m.Preview.Folders {
+				m.Preview.Folders[i].Selected = true
+			}
+			m.recalculatePreviewTotals()
+			return m, nil
+		case "n":
+			// Select none
+			for i := range m.Preview.Folders {
+				m.Preview.Folders[i].Selected = false
+			}
+			m.recalculatePreviewTotals()
+			return m, nil
+		case "enter":
+			// Start migration with selected folders
+			return m.startMigrationFromPreview()
+		}
+
+	case sync.PreviewMsg:
+		if msg.Error != nil {
+			m.SetupErr = msg.Error.Error()
+			// Return to previous phase
+			if m.InputMode == ModeManual {
+				m.Phase = PhaseManual
+			} else {
+				m.Phase = PhaseBulk
+			}
+			return m, nil
+		}
+
+		// Initialize preview data
+		m.Preview.SourceAccount = msg.Data.SourceAccount
+		m.Preview.DestAccount = msg.Data.DestAccount
+		m.Preview.SourceHost = msg.Data.SourceHost
+		m.Preview.DestHost = msg.Data.DestHost
+		m.Preview.Folders = make([]FolderPreview, len(msg.Data.Folders))
+
+		var totalMessages int
+		var totalSize int64
+
+		for i, f := range msg.Data.Folders {
+			m.Preview.Folders[i] = FolderPreview{
+				Name:         f.Name,
+				MessageCount: f.MessageCount,
+				SizeEstimate: f.SizeEstimate,
+				Selected:     true, // Default: all selected
+			}
+			totalMessages += f.MessageCount
+			totalSize += f.SizeEstimate
+		}
+
+		m.Preview.TotalMessages = totalMessages
+		m.Preview.TotalSizeEstimate = totalSize
+		m.Preview.SelectedFolders = len(msg.Data.Folders)
+		m.Preview.SelectedMessages = totalMessages
+		m.Preview.SelectedSizeEstimate = totalSize
+		m.Preview.EstimatedDuration = sync.CalculateEstimatedDuration(totalMessages)
+		m.Preview.FocusedFolder = 0
+
+		return m, nil
+	}
+
+	return m, nil
+}
+
+func (m *Model) recalculatePreviewTotals() {
+	var selectedFolders, selectedMessages int
+	var selectedSize int64
+
+	for _, f := range m.Preview.Folders {
+		if f.Selected {
+			selectedFolders++
+			selectedMessages += f.MessageCount
+			selectedSize += f.SizeEstimate
+		}
+	}
+
+	m.Preview.SelectedFolders = selectedFolders
+	m.Preview.SelectedMessages = selectedMessages
+	m.Preview.SelectedSizeEstimate = selectedSize
+	m.Preview.EstimatedDuration = sync.CalculateEstimatedDuration(selectedMessages)
+}
+
+func (m Model) startMigrationFromPreview() (tea.Model, tea.Cmd) {
+	// Filter to only selected folders
+	var selectedFolders []string
+	for _, f := range m.Preview.Folders {
+		if f.Selected {
+			selectedFolders = append(selectedFolders, f.Name)
+		}
+	}
+
+	if len(selectedFolders) == 0 {
+		return m, nil // Don't start if nothing selected
+	}
+
+	// Transition to dashboard
+	m.Phase = PhaseDash
+	m.State = StateSyncing
+	m.SrcState = ConnReady
+	m.DstState = ConnReady
+
+	// Build folder states from preview
+	m.Folders = make([]FolderState, 0, len(selectedFolders))
+	totalMessages := 0
+	for _, f := range m.Preview.Folders {
+		if f.Selected {
+			m.Folders = append(m.Folders, FolderState{
+				Name:  f.Name,
+				Total: f.MessageCount,
+			})
+			totalMessages += f.MessageCount
+		}
+	}
+	m.TotalMessages = totalMessages
+
+	m.AddLog(LogInfo, fmt.Sprintf("Starting migration with %d folders, %d messages", len(selectedFolders), totalMessages))
+
+	// Build account pairs
+	if m.InputMode == ModeManual {
+		pairs := []sync.AccountPair{{
+			SrcCfg: imapconn.Config{
+				Host:     m.SrcConfig.Host,
+				Port:     m.SrcConfig.Port,
+				Username: m.SrcConfig.Username,
+				Password: m.SrcConfig.Password,
+				TLS:      m.SrcConfig.TLS,
+			},
+			DstCfg: imapconn.Config{
+				Host:     m.DstConfig.Host,
+				Port:     m.DstConfig.Port,
+				Username: m.DstConfig.Username,
+				Password: m.DstConfig.Password,
+				TLS:      m.DstConfig.TLS,
+			},
+		}}
+		cmd, ch := sync.RunMigration(pairs)
+		m.StatusCh = ch
+		return m, cmd
+	} else {
+		// Bulk mode - pairs already built in bulk mode
+		// This would need to be handled differently
+		return m, nil
+	}
 }

@@ -10,6 +10,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/kocdeniz/mailmole/internal/buildinfo"
+	syncpkg "github.com/kocdeniz/mailmole/internal/sync"
 )
 
 // View dispatches rendering to the active phase.
@@ -26,6 +27,8 @@ func (m Model) View() string {
 		return m.viewManual()
 	case PhaseBulk:
 		return m.viewBulk()
+	case PhasePreview:
+		return m.viewPreview()
 	default:
 		return m.viewDash()
 	}
@@ -550,6 +553,135 @@ func (m Model) stateLabel() string {
 	default:
 		return "Idle"
 	}
+}
+
+// ============================================================
+// PhasePreview - Migration Preview Screen
+// ============================================================
+
+func (m Model) viewPreview() string {
+	w := clamp(m.Width-8, 60, 100)
+	p := m.Preview
+
+	// Header
+	header := lipgloss.JoinVertical(lipgloss.Left,
+		TitleStyle.Render("MAILMOLE  --  Migration Preview"),
+		lipgloss.NewStyle().Foreground(colorMuted).Render("Review your migration before starting.")+"\n",
+	)
+
+	// Connection Info Panel
+	connPanel := PanelStyle.Width(w - 4).Render(
+		SectionLabelStyle.Render("CONNECTION DETAILS") + "\n" +
+			lipgloss.NewStyle().Foreground(colorFg).Render(fmt.Sprintf("  Source:      %s@%s", p.SourceAccount, p.SourceHost)) + "\n" +
+			lipgloss.NewStyle().Foreground(colorFg).Render(fmt.Sprintf("  Destination: %s@%s", p.DestAccount, p.DestHost)),
+	)
+
+	// Summary Stats Panel
+	summaryContent := fmt.Sprintf(
+		"Total Folders:      %d\n"+
+			"Total Messages:     %d\n"+
+			"Total Size:         %s\n"+
+			"Selected Folders:   %d\n"+
+			"Selected Messages:  %d\n"+
+			"Selected Size:      %s\n"+
+			"Estimated Duration: %s",
+		len(p.Folders),
+		p.TotalMessages,
+		syncpkg.FormatSize(p.TotalSizeEstimate),
+		p.SelectedFolders,
+		p.SelectedMessages,
+		syncpkg.FormatSize(p.SelectedSizeEstimate),
+		syncpkg.FormatDuration(p.EstimatedDuration),
+	)
+
+	summaryPanel := PanelStyle.Width(w - 4).BorderForeground(colorPrimary).Render(
+		SectionLabelStyle.Render("MIGRATION SUMMARY") + "\n" +
+			lipgloss.NewStyle().Foreground(colorFg).Render(summaryContent),
+	)
+
+	// Folder List
+	var folderLines []string
+	folderLines = append(folderLines, SectionLabelStyle.Render("FOLDERS (Space to toggle, Enter to start)")+"\n")
+
+	visibleStart := 0
+	visibleEnd := len(p.Folders)
+	maxVisible := m.Height - 25 // Reserve space for other elements
+
+	if maxVisible > 0 && len(p.Folders) > maxVisible {
+		// Simple scroll logic
+		visibleStart = p.FocusedFolder - maxVisible/2
+		if visibleStart < 0 {
+			visibleStart = 0
+		}
+		visibleEnd = visibleStart + maxVisible
+		if visibleEnd > len(p.Folders) {
+			visibleEnd = len(p.Folders)
+			visibleStart = visibleEnd - maxVisible
+			if visibleStart < 0 {
+				visibleStart = 0
+			}
+		}
+	}
+
+	for i := visibleStart; i < visibleEnd && i < len(p.Folders); i++ {
+		f := p.Folders[i]
+		checkbox := "[ ]"
+		if f.Selected {
+			checkbox = "[x]"
+		}
+
+		checkboxStyle := lipgloss.NewStyle().Foreground(colorMuted)
+		if f.Selected {
+			checkboxStyle = lipgloss.NewStyle().Foreground(colorSuccess)
+		}
+
+		nameStyle := lipgloss.NewStyle().Foreground(colorFg)
+		if i == p.FocusedFolder {
+			nameStyle = nameStyle.Foreground(colorPrimary).Bold(true)
+		}
+
+		infoStyle := lipgloss.NewStyle().Foreground(colorMuted)
+		info := fmt.Sprintf("(%d msgs, %s)", f.MessageCount, syncpkg.FormatSize(f.SizeEstimate))
+
+		line := fmt.Sprintf("  %s %s %s",
+			checkboxStyle.Render(checkbox),
+			nameStyle.Render(truncateString(f.Name, 25)),
+			infoStyle.Render(info),
+		)
+		folderLines = append(folderLines, line)
+	}
+
+	if visibleEnd < len(p.Folders) {
+		folderLines = append(folderLines, lipgloss.NewStyle().Foreground(colorMuted).Render(fmt.Sprintf("  ... and %d more folders", len(p.Folders)-visibleEnd)))
+	}
+
+	folderPanel := PanelStyle.Width(w - 4).Render(strings.Join(folderLines, "\n"))
+
+	// Help text
+	help := lipgloss.NewStyle().Foreground(colorMuted).Render(
+		"[Space] Toggle selection  [a] Select all  [n] Select none  [↑/↓] Navigate  [Enter] Start migration  [Esc] Go back",
+	)
+
+	// Combine all sections
+	content := lipgloss.JoinVertical(lipgloss.Left,
+		header,
+		connPanel,
+		"",
+		summaryPanel,
+		"",
+		folderPanel,
+		"",
+		help,
+	)
+
+	return AppStyle.Render(lipgloss.NewStyle().Width(w).Render(content))
+}
+
+func truncateString(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen-3] + "..."
 }
 
 // ---- Utility -----------------------------------------------------------------

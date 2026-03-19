@@ -11,7 +11,14 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	imapconn "github.com/kocdeniz/mailmole/internal/imap"
 	"github.com/kocdeniz/mailmole/internal/sync"
+	"github.com/kocdeniz/mailmole/internal/web"
 )
+
+// WebServerInterface defines the interface for web dashboard integration
+type WebServerInterface interface {
+	UpdateFromSyncMsg(msg sync.StatusUpdateMsg)
+	AddLog(level, text string)
+}
 
 // ---- Connection state --------------------------------------------------------
 
@@ -55,6 +62,32 @@ type FolderState struct {
 	Done     bool
 	Skipped  bool
 	ErrorMsg string
+}
+
+// ---- Preview data structures --------------------------------------------------
+
+// FolderPreview holds preview information for a single folder
+type FolderPreview struct {
+	Name         string
+	MessageCount int
+	SizeEstimate int64
+	Selected     bool // user can toggle selection
+}
+
+// PreviewInfo holds the complete migration preview data
+type PreviewInfo struct {
+	SourceAccount        string
+	DestAccount          string
+	SourceHost           string
+	DestHost             string
+	Folders              []FolderPreview
+	TotalMessages        int
+	TotalSizeEstimate    int64
+	EstimatedDuration    time.Duration
+	SelectedFolders      int
+	SelectedMessages     int
+	SelectedSizeEstimate int64
+	FocusedFolder        int // for navigation
 }
 
 // ---- Manual form field indices -----------------------------------------------
@@ -114,11 +147,12 @@ func bulkFieldLabel(i int) string {
 type AppPhase int
 
 const (
-	PhaseIntro  AppPhase = iota // branding / splash
-	PhaseSelect                 // choose Manual or Bulk
-	PhaseManual                 // 6-field credential form
-	PhaseBulk                   // bulk 3-field form
-	PhaseDash                   // migration dashboard
+	PhaseIntro   AppPhase = iota // branding / splash
+	PhaseSelect                  // choose Manual or Bulk
+	PhaseManual                  // 6-field credential form
+	PhaseBulk                    // bulk 3-field form
+	PhasePreview                 // migration preview screen
+	PhaseDash                    // migration dashboard
 )
 
 // AppState is the migration state machine inside the dashboard.
@@ -193,6 +227,12 @@ type Model struct {
 	CurrentAccountIdx int
 	ActiveAccount     string // username of account currently being migrated
 
+	// ---- Preview Mode fields ------------------------------------------------
+	Preview PreviewInfo
+
+	// ---- Web Dashboard ------------------------------------------------------
+	WebServer WebServerInterface
+
 	// Status update channel — kept on model so Update can re-schedule reads
 	StatusCh <-chan sync.StatusUpdateMsg
 
@@ -254,6 +294,9 @@ func (m *Model) AddLog(level LogLevel, text string) {
 	}
 	m.appendLogToFile(entry)
 	m.refreshLogViewport(follow)
+
+	// Send to web dashboard if available
+	m.SendLogToWeb(level, text)
 }
 
 func (m *Model) appendLogToFile(e LogEntry) {
@@ -376,5 +419,26 @@ func NewModel(prog progress.Model) Model {
 		LogView:     viewport.New(80, 8),
 		LogFilePath: "mailmole.log",
 		Progress:    prog,
+	}
+}
+
+// SetWebServer sets the web server for dashboard integration
+func (m *Model) SetWebServer(server *web.Server) {
+	m.WebServer = server
+}
+
+// SendLogToWeb sends a log entry to the web dashboard if available
+func (m *Model) SendLogToWeb(level LogLevel, text string) {
+	if m.WebServer != nil {
+		levelStr := "INFO"
+		switch level {
+		case LogWarn:
+			levelStr = "WARN"
+		case LogError:
+			levelStr = "ERROR"
+		case LogSuccess:
+			levelStr = "SUCCESS"
+		}
+		m.WebServer.AddLog(levelStr, text)
 	}
 }
